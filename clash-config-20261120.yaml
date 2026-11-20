@@ -1,0 +1,214 @@
+mixed-port: 7897
+allow-lan: true
+mode: rule
+log-level: info
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: strict
+# ============================================================
+# Clash DNS 精简版(适用于 Mihomo / Clash.Meta 内核)
+# 思路:fake-ip 接管 + 国内域名走国内 DNS + 境外域名走境外 DoH
+#       用 nameserver-policy 分流,取代 fallback / fallback-filter
+# ============================================================
+dns:
+  enable: true
+  listen: 127.0.0.1:5335
+  ipv6: false                      # 没有 IPv6 环境就关掉,减少无效查询
+
+  # ---------- 优先读取 hosts(命中后直接返回,不再走 DNS 解析) ----------
+  use-hosts: true                  # 读取配置文件顶层 hosts: 段(见文件末尾示例)
+  use-system-hosts: true           # 读取系统 hosts 文件
+                                   #   Windows: C:\Windows\System32\drivers\etc\hosts
+                                   #   Linux/macOS/OpenWrt: /etc/hosts
+
+  # ---------- Fake-IP ----------
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter-mode: blacklist   # 列表内的域名返回真实 IP,其余返回假 IP
+
+  # ---------- 引导 DNS:只用来解析下面 DoH 服务器自己的域名,必须是纯 IP ----------
+  default-nameserver:
+    - 223.5.5.5                    # 阿里
+    - 119.29.29.29                 # 腾讯 DNSPod
+
+  # ---------- 默认 DNS:国内 DoH(未命中 policy 的域名都走这里) ----------
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+
+  # ---------- 分流策略:按域名指定 DNS ----------
+  nameserver-policy:
+    "geosite:cn,private":          # 国内域名 & 内网域名 -> 国内 DNS
+      - https://dns.alidns.com/dns-query
+      - https://doh.pub/dns-query
+    "geosite:geolocation-!cn":     # 境外域名 -> 境外 DoH
+      - https://cloudflare-dns.com/dns-query
+      - https://dns.google/dns-query
+
+  # ---------- 以下域名不使用假 IP(需要真实 IP 才能正常工作) ----------
+  fake-ip-filter:
+    # 局域网 / 内网
+    - "*.lan"
+    - "*.local"
+    - "geosite:private"
+    # 联网检测(Windows / Android / iOS 等)
+    - "geosite:connectivity-check"
+    - "*.msftconnecttest.com"
+    - "*.msftncsi.com"
+    # NTP 对时
+    - "geosite:category-ntp"
+    - "time.*.com"
+    - "time.*.gov"
+    - "ntp.*.com"
+    - "*.ntp.org.cn"
+    - "pool.ntp.org"
+    - "+.pool.ntp.org"
+    # STUN / P2P / 语音视频
+    - "stun.*.*"
+    - "stun.*.*.*"
+    # 游戏主机联机 / NAT 检测
+    - "*.*.*.srv.nintendo.net"
+    - "*.*.stun.playstation.net"
+    - "xbox.*.*.microsoft.com"
+    - "*.*.xboxlive.com"
+    # 英雄联盟测速
+    - "speedtest.cros.wr.pvp.net"
+    # QQ 本地登录回调
+    - "localhost.ptlogin2.qq.com"
+    # 音乐类(播放器依赖真实 IP,常见的几家)
+    - "+.music.163.com"
+    - "+.126.net"
+    - "+.y.qq.com"
+    - "+.music.tc.qq.com"
+    - "+.stream.qqmusic.qq.com"
+    - "+.kugou.com"
+    - "+.kuwo.cn"
+    - "+.music.migu.cn"
+    - "+.joox.com"
+
+# ============================================================
+# 可选:自定义 hosts(注意:这是顶层字段,和 dns: 同级,不要缩进到 dns 下面)
+# 需要 dns.use-hosts: true 才会生效
+# ============================================================
+# hosts:
+#   router.lan: 192.168.1.1
+#   nas.lan: 192.168.1.10
+#   "*.dev.local": 127.0.0.1
+#   "+.example.com": 10.0.0.5
+
+
+profile:
+  store-selected: true
+  store-fake-ip: false
+sniffer:
+  enable: true
+  parse-pure-ip: true
+  sniff:
+    TLS:
+      ports: [443, 8443]
+    HTTP:
+      ports: [80, 8080-8880]
+      override-destination: true
+    QUIC:
+      ports: [443, 8443]
+
+proxies:
+  - {name: "洛杉矶-优化线路(仅ipv6)", type: vless, server: "2605:52c0:1:16d:be24:11ff:fe4d:409f", port: 443, uuid: 759c3f2d-0aef-4491-adbf-9c2951ab45f2, tls: true, servername: it.nvidia.com, client-fingerprint: chrome, network: tcp, udp: true, reality-opts: {public-key: InjBaNuz6JtuYPFTQzxxAI9MpLpuav_MAp7G60JWLU8, short-id: e8416c}}
+  - {name: "洛杉矶-优化线路", type: vless, server: dmit.haozhazha.com, port: 443, uuid: 759c3f2d-0aef-4491-adbf-9c2951ab45f2, tls: true, servername: it.nvidia.com, client-fingerprint: chrome, network: tcp, udp: true, reality-opts: {public-key: InjBaNuz6JtuYPFTQzxxAI9MpLpuav_MAp7G60JWLU8, short-id: e8416c}}
+  - {name: "洛杉矶-备用线路(无优化)-realty", type: vless, server: proxy.haozhazha.com, port: 443, uuid: 759c3f2d-0aef-4491-adbf-9c2951ab45f2, tls: true, servername: it.nvidia.com, client-fingerprint: chrome, network: tcp, udp: true, reality-opts: {public-key: bvQiJYWJPEfqRg9Me6mrKznInRBZqJKBN6PThpUPRjg, short-id: "47"}}
+
+proxy-groups:
+  - name: "🚀 节点选择"
+    type: select
+    proxies: ["⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "⚡ 自动选择"
+    type: url-test
+    proxies: [洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+    url: "https://www.gstatic.com/generate_204"
+    interval: 300
+    lazy: false
+  - name: "🛑 广告拦截"
+    type: select
+    proxies: [REJECT, DIRECT, "🚀 节点选择"]
+  - name: "🤖 AI 服务"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "📹 油管视频"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "🔍 谷歌服务"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "Ⓜ️ 微软服务"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "🍏 苹果服务"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "📲 电报消息"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "🐱 代码托管"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "🏠 私有网络"
+    type: select
+    proxies: [DIRECT, REJECT, "🚀 节点选择", "⚡ 自动选择", 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "🔒 国内服务"
+    type: select
+    proxies: [DIRECT, REJECT, "🚀 节点选择", "⚡ 自动选择", 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "🌍 非中国"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+  - name: "🐟 漏网之鱼"
+    type: select
+    proxies: ["🚀 节点选择", "⚡ 自动选择", DIRECT, REJECT, 洛杉矶-优化线路(仅ipv6), 洛杉矶-优化线路, 洛杉矶-备用线路(无优化)-realty]
+
+rule-providers:
+  category-ads-all: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/category-ads-all.mrs", path: ./ruleset/category-ads-all.mrs, interval: 86400, format: mrs}
+  private: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/private.mrs", path: ./ruleset/private.mrs, interval: 86400, format: mrs}
+  private-ip: {type: http, behavior: ipcidr, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/private.mrs", path: ./ruleset/private-ip.mrs, interval: 86400, format: mrs}
+  geolocation-cn: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/geolocation-cn.mrs", path: ./ruleset/geolocation-cn.mrs, interval: 86400, format: mrs}
+  cn-ip: {type: http, behavior: ipcidr, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/cn.mrs", path: ./ruleset/cn-ip.mrs, interval: 86400, format: mrs}
+  "geolocation-!cn": {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/geolocation-!cn.mrs", path: "./ruleset/geolocation-!cn.mrs", interval: 86400, format: mrs}
+  openai: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/openai.mrs", path: ./ruleset/openai.mrs, interval: 86400, format: mrs}
+  anthropic: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/anthropic.mrs", path: ./ruleset/anthropic.mrs, interval: 86400, format: mrs}
+  "category-ai-chat-!cn": {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/category-ai-chat-!cn.mrs", path: "./ruleset/category-ai-chat-!cn.mrs", interval: 86400, format: mrs}
+  youtube: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/youtube.mrs", path: ./ruleset/youtube.mrs, interval: 86400, format: mrs}
+  google: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/google.mrs", path: ./ruleset/google.mrs, interval: 86400, format: mrs}
+  google-ip: {type: http, behavior: ipcidr, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/google.mrs", path: ./ruleset/google-ip.mrs, interval: 86400, format: mrs}
+  microsoft: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/microsoft.mrs", path: ./ruleset/microsoft.mrs, interval: 86400, format: mrs}
+  onedrive: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/onedrive.mrs", path: ./ruleset/onedrive.mrs, interval: 86400, format: mrs}
+  apple: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/apple.mrs", path: ./ruleset/apple.mrs, interval: 86400, format: mrs}
+  icloud: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/icloud.mrs", path: ./ruleset/icloud.mrs, interval: 86400, format: mrs}
+  telegram: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/telegram.mrs", path: ./ruleset/telegram.mrs, interval: 86400, format: mrs}
+  telegram-ip: {type: http, behavior: ipcidr, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geoip/telegram.mrs", path: ./ruleset/telegram-ip.mrs, interval: 86400, format: mrs}
+  github: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/github.mrs", path: ./ruleset/github.mrs, interval: 86400, format: mrs}
+  gitlab: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/gitlab.mrs", path: ./ruleset/gitlab.mrs, interval: 86400, format: mrs}
+  atlassian: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/atlassian.mrs", path: ./ruleset/atlassian.mrs, interval: 86400, format: mrs}
+  cn: {type: http, behavior: domain, url: "https://github.com/MetaCubeX/meta-rules-dat/raw/refs/heads/meta/geo/geosite/cn.mrs", path: ./ruleset/cn.mrs, interval: 86400, format: mrs}
+
+rules:
+  - RULE-SET,category-ads-all,🛑 广告拦截
+  - RULE-SET,private,🏠 私有网络
+  - RULE-SET,private-ip,🏠 私有网络,no-resolve
+  - RULE-SET,openai,🤖 AI 服务
+  - RULE-SET,anthropic,🤖 AI 服务
+  - RULE-SET,category-ai-chat-!cn,🤖 AI 服务
+  - RULE-SET,geolocation-cn,🔒 国内服务
+  - RULE-SET,cn-ip,🔒 国内服务,no-resolve
+  - RULE-SET,youtube,📹 油管视频
+  - RULE-SET,google,🔍 谷歌服务
+  - RULE-SET,google-ip,🔍 谷歌服务,no-resolve
+  - RULE-SET,telegram,📲 电报消息
+  - RULE-SET,telegram-ip,📲 电报消息,no-resolve
+  - RULE-SET,github,🐱 代码托管
+  - RULE-SET,gitlab,🐱 代码托管
+  - RULE-SET,atlassian,🐱 代码托管
+  - RULE-SET,microsoft,Ⓜ️ 微软服务
+  - RULE-SET,onedrive,Ⓜ️ 微软服务
+  - RULE-SET,apple,🍏 苹果服务
+  - RULE-SET,icloud,🍏 苹果服务
+  - RULE-SET,geolocation-!cn,🌍 非中国
+  - RULE-SET,cn,🔒 国内服务
+  - MATCH,🐟 漏网之鱼
